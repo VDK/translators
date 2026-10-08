@@ -9,7 +9,7 @@
 	"inRepository": true,
 	"translatorType": 4,
 	"browserSupport": "gcsibv",
-	"lastUpdated": "2026-10-08 20:24:15"
+	"lastUpdated": "2026-10-08 20:57:26"
 }
 
 /*
@@ -109,12 +109,13 @@ async function doWeb(doc, url) {
 async function scrape(doc, url = doc.location.href) {
 	let params = parseQuery(url);
 	let collection = params.coll || collectionFromUrl(url);
+	let identifier = params.identifier || objectId(doc);
 	let item = new Zotero.Item(itemType(collection, doc, url));
 
 	// The page itself is rendered from this API, so prefer it over the visible metadata
 	let data;
-	if (params.identifier && collection) {
-		let apiUrl = `${API_URL}?identifier=${encodeURIComponent(params.identifier)}&coll=${encodeURIComponent(collection)}&type=dc`;
+	if (identifier && collection) {
+		let apiUrl = `${API_URL}?identifier=${encodeURIComponent(identifier)}&coll=${encodeURIComponent(collection)}&type=dc`;
 		try {
 			data = await requestJSON(apiUrl);
 		}
@@ -124,10 +125,24 @@ async function scrape(doc, url = doc.location.href) {
 	}
 
 	if (data && data.title) {
-		addApiData(item, data, collection, params.identifier);
+		addApiData(item, data, collection, identifier);
 	}
 	else {
 		addPageData(item, doc);
+	}
+
+	// The share menu lists the KB permalinks of the current object, from the
+	// publication down to the page and, for newspaper articles, the article,
+	// so the last one is the most specific. Prefer those over a constructed URL.
+	let permalinks = pagePermalinks(doc);
+	if (permalinks.length) {
+		item.url = permalinks[permalinks.length - 1].url;
+	}
+	if (collection == 'ddd' || collection == 'dts') {
+		// The API resolves a page or issue identifier to the first article on
+		// that page, so its page number can be off; the permalink is exact.
+		let page = permalinkPage(permalinks);
+		if (page) item.pages = page;
 	}
 
 	addAttachments(item, doc, data);
@@ -139,6 +154,41 @@ function itemType(collection, doc, url) {
 	if (ITEM_TYPES[collection]) return ITEM_TYPES[collection];
 	let detected = detectWeb(doc, url);
 	return detected && detected != 'multiple' ? detected : 'webpage';
+}
+
+// The URL of the object the viewer is showing, e.g. ddd:110578678:mpeg21:a0106
+function objectId(doc) {
+	let wrapper = doc.querySelector('div.js-object-viewer-wrapper');
+	if (!wrapper) return '';
+	try {
+		return JSON.parse(wrapper.dataset.metadata).objectlevelId || '';
+	}
+	catch (e) {
+		Z.debug(`Could not parse Delpher object metadata: ${e}`);
+		return '';
+	}
+}
+
+// The share menu holds the KB permalinks of the current object: the
+// publication, the page and (for newspaper articles) the article. They are
+// in that order in the document, so the last non-empty one is the most specific.
+function pagePermalinks(doc) {
+	let permalinks = [];
+	for (let input of doc.querySelectorAll('input[id*="sharelinks__perm__input--"]')) {
+		if (!input.value) continue;
+		permalinks.push({
+			level: input.id.replace(/^.*--/, ''),
+			url: input.value
+		});
+	}
+	return permalinks;
+}
+
+function permalinkPage(permalinks) {
+	let page = permalinks.find(permalink => permalink.level == 'pageurl');
+	if (!page) return '';
+	let match = page.url.match(/0*(\d+)$/);
+	return match ? match[1] : '';
 }
 
 function addApiData(item, data, collection, identifier) {
@@ -410,6 +460,78 @@ var testCases = [
 	},
 	{
 		"type": "web",
+		"url": "https://www.delpher.nl/nl/kranten/view?coll=ddd&identifier=ddd:110578678:mpeg21:p002",
+		"items": [
+			{
+				"itemType": "newspaperArticle",
+				"title": "Het Cechische volk in deze dagen. Aanpassing in gelatenheid aan den nieuwen toestand. Een bezoek aan Praag.",
+				"creators": [],
+				"date": "1941-02-01",
+				"callNumber": "832675288",
+				"edition": "Avond",
+				"libraryCatalog": "Delpher",
+				"pages": "2",
+				"place": "Amsterdam",
+				"publicationTitle": "De Telegraaf",
+				"url": "https://resolver.kb.nl/resolve?urn=ddd:110578678:mpeg21:p002",
+				"attachments": [
+					{
+						"title": "Snapshot",
+						"mimeType": "text/html"
+					},
+					{
+						"title": "Full Text PDF",
+						"mimeType": "application/pdf"
+					},
+					{
+						"title": "Image",
+						"mimeType": "image/jpeg"
+					}
+				],
+				"tags": [],
+				"notes": [],
+				"seeAlso": []
+			}
+		]
+	},
+	{
+		"type": "web",
+		"url": "https://www.delpher.nl/nl/kranten/view?coll=ddd&identifier=ddd:110578678:mpeg21",
+		"items": [
+			{
+				"itemType": "newspaperArticle",
+				"title": "Het Cechische volk in deze dagen. Aanpassing in gelatenheid aan den nieuwen toestand. Een bezoek aan Praag.",
+				"creators": [],
+				"date": "1941-02-01",
+				"callNumber": "832675288",
+				"edition": "Avond",
+				"libraryCatalog": "Delpher",
+				"pages": "1",
+				"place": "Amsterdam",
+				"publicationTitle": "De Telegraaf",
+				"url": "https://resolver.kb.nl/resolve?urn=ddd:110578678:mpeg21:p001",
+				"attachments": [
+					{
+						"title": "Snapshot",
+						"mimeType": "text/html"
+					},
+					{
+						"title": "Full Text PDF",
+						"mimeType": "application/pdf"
+					},
+					{
+						"title": "Image",
+						"mimeType": "image/jpeg"
+					}
+				],
+				"tags": [],
+				"notes": [],
+				"seeAlso": []
+			}
+		]
+	},
+	{
+		"type": "web",
 		"url": "https://www.delpher.nl/nl/tijdschriften/view/index?query=buurman&coll=dts&identifier=dts%3A2738036%3Ampeg21%3A0012&page=1&maxperpage=10",
 		"items": [
 			{
@@ -558,7 +680,7 @@ var testCases = [
 				"place": "Alkmaar",
 				"publisher": "Gebr. Kluitman",
 				"series": "Ons genoegen. Serie A. Jongensboeken",
-				"url": "https://resolver.kb.nl/resolve?urn=MMKB02:100006852",
+				"url": "https://resolver.kb.nl/resolve?urn=MMKB02:100006852:00009",
 				"attachments": [
 					{
 						"title": "Snapshot",
@@ -615,7 +737,7 @@ var testCases = [
 				"date": "1950-02-20",
 				"language": "nl",
 				"libraryCatalog": "Delpher",
-				"url": "https://resolver.kb.nl/resolve?urn=anp:1950:02:20:19:mpeg21",
+				"url": "https://resolver.kb.nl/resolve?urn=anp:1950:02:20:19",
 				"attachments": [
 					{
 						"title": "Snapshot",
