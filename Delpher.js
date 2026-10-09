@@ -9,7 +9,7 @@
 	"inRepository": true,
 	"translatorType": 4,
 	"browserSupport": "gcsibv",
-	"lastUpdated": "2026-10-08 20:57:26"
+	"lastUpdated": "2026-10-09 15:54:31"
 }
 
 /*
@@ -41,7 +41,7 @@ const API_URL = 'https://www.delpher.nl/nl/api/resource';
 // Delpher collection code -> Zotero item type
 const ITEM_TYPES = {
 	ddd: 'newspaperArticle',
-	dts: 'journalArticle',
+	dts: 'magazineArticle',
 	boeken: 'book',
 	anp: 'radioBroadcast'
 };
@@ -68,7 +68,7 @@ const LANGUAGES = {
 function detectWeb(doc, url) {
 	if (url.includes('/view')) {
 		if (url.includes('/boeken/')) return 'book';
-		if (url.includes('/tijdschriften/')) return 'journalArticle';
+		if (url.includes('/tijdschriften/')) return 'magazineArticle';
 		if (url.includes('/kranten/')) return 'newspaperArticle';
 		if (url.includes('/radiobulletins/')) return 'radioBroadcast';
 	}
@@ -216,7 +216,6 @@ function addApiData(item, data, collection, identifier) {
 		item.volume = data.volumeNumber || volumeFromTitle(data.title);
 		item.issue = data.issuenumber || data.sequenceNumber;
 		item.pages = pageFromIdentifier(identifier);
-		item.publisher = cleanText(data.publisher);
 		item.libraryCatalog = cleanText(data.source) || 'Delpher';
 	}
 	else if (collection == 'boeken') {
@@ -535,7 +534,7 @@ var testCases = [
 		"url": "https://www.delpher.nl/nl/tijdschriften/view/index?query=buurman&coll=dts&identifier=dts%3A2738036%3Ampeg21%3A0012&page=1&maxperpage=10",
 		"items": [
 			{
-				"itemType": "journalArticle",
+				"itemType": "magazineArticle",
 				"title": "Nieuwsblad voor den boekhandel jrg 91, 1924, no 35",
 				"creators": [],
 				"date": "1924-05-02",
