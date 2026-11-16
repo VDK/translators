@@ -217,6 +217,7 @@ function completeItem(doc, newItem, hwType) {
 	addOtherMetadata(doc, newItem);
 	addJSONLDMetadata(doc, newItem);
 	addLowQualityMetadata(doc, newItem);
+	mergeCollectiveCreators(newItem);
 	finalDataCleanup(doc, newItem);
 
 	if (CUSTOM_FIELD_MAPPINGS) {
@@ -689,6 +690,22 @@ let JSONLD_CONTAINER_TYPES = ['website', 'periodical', 'newspaper', 'magazine', 
 
 function isCollectiveByline(name) {
 	return COLLECTIVE_BYLINE_RE.test(name) || COLLECTIVE_BYLINE_PREFIX_RE.test(name);
+}
+
+// Every author source (citation_author, DC/RDF, parse.ly, meta author,
+// article:author, the page byline) can carry a group credit such as
+// "Reuters Staff" or "Redactie Trouw", which cleanAuthor() splits into a
+// first and last name. Put those back together as a single-field name.
+function mergeCollectiveCreators(newItem) {
+	for (let creator of newItem.creators) {
+		if (creator.fieldMode == 1 || !creator.firstName) continue;
+		let name = ZU.trimInternal(creator.firstName + ' ' + (creator.lastName || ''));
+		if (isCollectiveByline(name)) {
+			delete creator.firstName;
+			creator.lastName = name;
+			creator.fieldMode = 1;
+		}
+	}
 }
 
 /**
