@@ -671,13 +671,25 @@ function addOtherMetadata(doc, newItem) {
 
 // A byline such as "1News Reporters" or "Reuters Staff" is typed as a Person by
 // some publishers even though it names a group, so it must not be split.
-let COLLECTIVE_BYLINE_RE = /\b(reporters?|staff|newsroom|desk|team|editors?|wires?|news|correspondents?|bureau)\s*$/i;
+// Besides English this covers Dutch, German, French, Spanish, Italian and
+// Portuguese desk names ("NOS Nieuws", "Redactie Trouw", "La rédaction",
+// "SPIEGEL-Redaktion", "L'équipe", "EFE / Agencias"). An explicit separator
+// instead of \b, because \b does not see a boundary before a non-ASCII
+// letter such as the é of "équipe".
+let COLLECTIVE_BYLINE_RE = /(?:^|[\s'’-])(?:reporters?|staff|newsroom|desk|team|editors?|wires?|news|correspondents?|bureau|redactie|nieuws(?:dienst)?|verslaggevers?|correspondenten|redaktion|korrespondent(?:en|in)?|r[ée]daction|correspondants?|[ée]quipe|redacci[óo]n|corresponsal(?:es)?|equipo|agencias|redazione|corrispondent[ei]|redac?[çc][ãa]o|correspondentes?|ag[êe]ncias)\s*$/i;
+
+// "Redactie Trouw", "Rédaction Le Monde", "Redacción El País"
+let COLLECTIVE_BYLINE_PREFIX_RE = /^(?:redactie|redaktion|r[ée]daction|redacci[óo]n|redazione|redac?[çc][ãa]o|equipo|[ée]quipe)\s/i;
 
 let WIRE_SERVICE_RE = /^(AFP|AP|PTI|ANI|IANS|DPA|dpa|EFE|UPI|AAP|ANP)$/;
 
 // Lowercased schema.org types
 let JSONLD_ARTICLE_TYPES = ['newsarticle', 'article', 'reportagenewsarticle', 'report'];
 let JSONLD_CONTAINER_TYPES = ['website', 'periodical', 'newspaper', 'magazine', 'blog'];
+
+function isCollectiveByline(name) {
+	return COLLECTIVE_BYLINE_RE.test(name) || COLLECTIVE_BYLINE_PREFIX_RE.test(name);
+}
 
 /**
  * Reads JSON-LD (schema.org) blocks and fills in a subset of item fields.
@@ -910,10 +922,6 @@ function getJSONLDString(value) {
 
 function cleanJSONLDName(value) {
 	return getJSONLDString(value).replace(/^By\s+/i, '');
-}
-
-function isCollectiveByline(name) {
-	return COLLECTIVE_BYLINE_RE.test(name);
 }
 
 function addLowQualityMetadata(doc, newItem) {
