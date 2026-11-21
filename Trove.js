@@ -1,7 +1,7 @@
 {
 	"translatorID": "8efcb7cb-4180-4555-969a-08e8b34066c4",
 	"label": "Trove",
-	"creator": "Tim Sherratt and Abe Jellinek",
+	"creator": "Tim Sherratt, Abe Jellinek and Vera de Kok",
 	"target": "^https?://trove\\.nla\\.gov\\.au/(?:newspaper|gazette|work|book|article|picture|music|map|collection|search)/",
 	"minVersion": "3.0",
 	"maxVersion": "",
@@ -9,13 +9,14 @@
 	"inRepository": true,
 	"translatorType": 4,
 	"browserSupport": "gcsibv",
-	"lastUpdated": "2026-11-21 15:30:00"
+	"lastUpdated": "2026-11-21 21:27:39"
 }
 
 /*
    Trove Translator
    Copyright (C) 2016-2021 Tim Sherratt (tim@discontents.com.au, @wragge)
-						   and Abe Jellinek
+						   Abe Jellinek
+						   Vera de Kok
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU Affero General Public License as published by
