@@ -67,16 +67,21 @@ function getSearchResults(doc, url, checkOnly) {
 	var found = false;
 	if (url.includes('/search/')) {
 		for (let container of doc.querySelectorAll('.result')) {
-			let link = container.querySelector('.title a');
+			// list results have a .title link; image results are a single
+			// link around the thumbnail with a .caption
+			let link = container.querySelector('.title a')
+				|| container.querySelector('a[href*="/work/"], a[href*="/newspaper/article/"]');
+			if (!link) continue;
 			urls.push(link.href);
-			titles.push(link.textContent);
+			titles.push(link.closest('.title') ? link.textContent : text(container, '.caption'));
 		}
 	}
 	else if (url.includes('/work/')) {
 		for (let container of doc.querySelectorAll('.version-container')) {
-			urls.push(attr(container, 'a', 'href'));
+			let link = container.querySelector('a');
+			urls.push(link && link.href);
 			// titles are usually the same, so we'll disambiguate using the publication year
-			titles.push(text(container, '.year') + ': ' + text(container, '.title'));
+			titles.push([text(container, '.year'), text(container, '.title')].filter(Boolean).join(': '));
 		}
 	}
 	else {
@@ -254,24 +259,20 @@ function newspaperPlace(pubTitle) {
 function cleanPlace(place) {
 	if (!place) return place;
 	
-	let replacements = {
-		'Vic.': 'Victoria',
-		'Qld.': 'Queensland',
-		SA: 'South Australia',
-		'S.A.': 'South Australia',
-		'S.Aust.': 'South Australia',
-		'Tas.': 'Tasmania',
-		WA: 'Western Australia',
-		'W.A.': 'Western Australia',
-		NSW: 'New South Wales',
-		'N.S.W.': 'New South Wales',
-		ACT: 'Australian Capital Territory',
-		'A.C.T.': 'Australian Capital Territory',
-		NT: 'Northern Territory',
-		'N.T.': 'Northern Territory'
-	};
-	
-	for (let [from, to] of Object.entries(replacements)) {
+	// abbreviations may or may not have trailing periods
+	// (e.g. both "S.Aust." and "S.Aust" occur)
+	let replacements = [
+		[/\bVic\.?(?=[\s,;)]|$)/, 'Victoria'],
+		[/\bQld\.?(?=[\s,;)]|$)/, 'Queensland'],
+		[/\bS\.\s?Aust\.?(?=[\s,;)]|$)|\bS\.A\.(?=[\s,;)]|$)|\bSA\b/, 'South Australia'],
+		[/\bTas\.?(?=[\s,;)]|$)/, 'Tasmania'],
+		[/\bW\.A\.(?=[\s,;)]|$)|\bWA\b/, 'Western Australia'],
+		[/\bN\.S\.W\.?(?=[\s,;)]|$)|\bNSW\b/, 'New South Wales'],
+		[/\bA\.C\.T\.?(?=[\s,;)]|$)|\bACT\b/, 'Australian Capital Territory'],
+		[/\bN\.T\.(?=[\s,;)]|$)|\bNT\b/, 'Northern Territory']
+	];
+
+	for (let [from, to] of replacements) {
 		place = place.replace(from, to);
 	}
 	
@@ -361,7 +362,8 @@ function cleanPublisher(publisher) {
 		return { place: cleanPlace(parts[0]), publisher: parts[1] };
 	}
 	else {
-		return { place: parts[0] };
+		// no "Place : Publisher" split, e.g. just "Springer"
+		return { publisher: parts.join(' : ') };
 	}
 }
 
@@ -434,8 +436,15 @@ function scrapeWork(doc, url, docContext) {
 			
 			if (item.notes && item.notes.length == 1) {
 				// abstract goes into a note, but we want it in abstractNote
-				// (with HTML tags removed)
-				item.abstractNote = ZU.cleanTags(item.notes.pop().note);
+				// (with HTML tags removed); picture records use the note
+				// for rights statements instead
+				let note = ZU.cleanTags(item.notes.pop().note);
+				if (/\bcopyright\b|\brights\b|\blicen[cs]e/i.test(note)) {
+					item.rights = note;
+				}
+				else {
+					item.abstractNote = note;
+				}
 			}
 
 			// Attach a link to the contributing repository if available
@@ -500,7 +509,7 @@ function md5(d){function rstr2hex(d){for(var _,m="0123456789abcdef",f="",r=0;r<d
 var testCases = [
 	{
 		"type": "web",
-		"url": "https://trove.nla.gov.au/work/9958833",
+		"url": "https://trove.nla.gov.au/work/9958833/version/11567057%20319077272%20320197228",
 		"defer": true,
 		"items": [
 			{
@@ -515,13 +524,18 @@ var testCases = [
 				],
 				"date": "1980",
 				"ISBN": "9780908065073",
-				"abstractNote": "Reprinted from Good words for 1887/ edited by Donald Macleod, published: London: Isbister and Co",
+				"abstractNote": "Limited edition of 100 numbered copies",
 				"itemID": "trove.nla.gov.au/work/9958833",
 				"language": "English",
 				"libraryCatalog": "Trove",
 				"place": "Warradale, South Australia",
 				"publisher": "Pioneer Books",
-				"attachments": [],
+				"attachments": [
+					{
+						"title": "Trove thumbnail image",
+						"mimeType": "image/jpeg"
+					}
+				],
 				"tags": [],
 				"notes": [],
 				"seeAlso": []
@@ -620,7 +634,7 @@ var testCases = [
 	},
 	{
 		"type": "web",
-		"url": "https://trove.nla.gov.au/work/208456891",
+		"url": "https://trove.nla.gov.au/work/258722621",
 		"defer": true,
 		"items": [
 			{
@@ -629,10 +643,11 @@ var testCases = [
 				"creators": [],
 				"date": "1912",
 				"artworkMedium": "Photograph",
-				"itemID": "trove.nla.gov.au/work/208456891",
-				"language": "en",
+				"itemID": "trove.nla.gov.au/work/258722621",
+				"language": "English",
 				"libraryCatalog": "Trove",
-				"url": "http://collections.slsa.sa.gov.au/resource/B+49301",
+				"rights": "No known copyright restrictions",
+				"url": "https://collections.slsa.sa.gov.au/resource/B+49301",
 				"attachments": [
 					{
 						"title": "Record from contributing repository",
@@ -652,47 +667,57 @@ var testCases = [
 	},
 	{
 		"type": "web",
-		"url": "https://trove.nla.gov.au/work/245696250",
+		"url": "https://trove.nla.gov.au/work/251351030",
 		"defer": true,
 		"items": [
 			{
 				"itemType": "bookSection",
-				"title": "Conducting a systematic review : a practical guide",
+				"title": "Systematic reviews and meta-analysis in pharmacy practice",
 				"creators": [
 					{
-						"firstName": "Freya",
-						"lastName": "MacMillan",
+						"firstName": "Syed Shahzad",
+						"lastName": "Hasan",
 						"creatorType": "author"
 					},
 					{
-						"firstName": "Kate A.",
-						"lastName": "McBride",
+						"firstName": "Therese",
+						"lastName": "Kairuz",
 						"creatorType": "author"
 					},
 					{
-						"firstName": "Emma S.",
-						"lastName": "George",
+						"firstName": "Kaeshaelya",
+						"lastName": "Thiruchelvam",
 						"creatorType": "author"
 					},
 					{
-						"firstName": "Genevieve Z.",
-						"lastName": "Steiner",
+						"firstName": "Zaheer-Ud-Din",
+						"lastName": "Babar",
 						"creatorType": "author"
 					}
 				],
-				"date": "2018",
-				"itemID": "trove.nla.gov.au/work/245696250",
+				"date": "2020-01-01",
+				"itemID": "trove.nla.gov.au/work/251351030",
 				"language": "eng",
 				"libraryCatalog": "Trove",
-				"place": "Singapore, Springer",
-				"publisher": "Singapore, Springer",
-				"shortTitle": "Conducting a systematic review",
+				"publisher": "Springer",
 				"attachments": [],
 				"tags": [],
 				"notes": [],
 				"seeAlso": []
 			}
 		]
+	},
+	{
+		"type": "web",
+		"url": "https://trove.nla.gov.au/work/9958833",
+		"defer": true,
+		"items": "multiple"
+	},
+	{
+		"type": "web",
+		"url": "https://trove.nla.gov.au/search/category/images?keyword=wragge",
+		"defer": true,
+		"items": "multiple"
 	}
 ]
 /** END TEST CASES **/
