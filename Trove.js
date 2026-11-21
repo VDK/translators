@@ -9,7 +9,7 @@
 	"inRepository": true,
 	"translatorType": 4,
 	"browserSupport": "gcsibv",
-	"lastUpdated": "2026-10-01 08:07:16"
+	"lastUpdated": "2026-11-21 15:30:00"
 }
 
 /*
@@ -97,97 +97,142 @@ function getSearchResults(doc, url, checkOnly) {
 }
 
 
-function doWeb(doc, url) {
+async function doWeb(doc, url) {
 	if (detectWeb(doc, url) == "multiple") {
-		Zotero.selectItems(getSearchResults(doc, url), function (items) {
-			if (!items) return;
-
-			for (var i in items) {
+		let items = await Zotero.selectItems(getSearchResults(doc, url));
+		if (!items) return;
+		for (let i of Object.keys(items)) {
+			if (i.includes('/newspaper/article/')) {
+				await scrapeNewspaper(await requestDocument(i), i);
+			}
+			else {
 				// Pass the current document as context for cookie
 				// retrieval and API-key computation.
-				scrape(null, i, doc/* docContext */);
+				scrapeWork(null, i, doc);
 			}
-		});
+		}
+	}
+	else if (url.includes('/newspaper/article/')) {
+		await scrapeNewspaper(doc, url);
 	}
 	else {
-		scrape(doc, url);
+		scrapeWork(doc, url, doc);
 	}
 }
 
 
-function scrape(doc, url, docContext = doc) {
-	if (url.includes('/newspaper/article/')) {
-		scrapeNewspaper(doc, url);
+// Newspaper article pages are server-rendered and carry all citation data
+// in the DOM: the (hidden) text-correction metadata form, the print header,
+// the "Cite" panel and the OCR text zones.
+async function scrapeNewspaper(doc, url) {
+	let articleID = url.match(/newspaper\/article\/(\d+)/)[1];
+	let item = new Zotero.Item('newspaperArticle');
+
+	let wikiCite = parseWikiCite(Array.from(doc.querySelectorAll('.detailsPanel dd'))
+		.map(dd => dd.textContent)
+		.find(cite => cite.includes('{{cite')));
+	// e.g. "Fri 14 Sept 1979 - Dutch Australian Weekly (Sydney, NSW : 1951 - 1993)"
+	//      "Page 4 - Vera's kookgeheimen ..."
+	let printHeader = text(doc, '#fulltextContents .print-only');
+	let headerMatch = printHeader.match(/^\s*\w{3}\s+(\d{1,2} \w+ \d{4})\s+-\s+(.+?)\s+Page\s+(\S+)\s+-\s/);
+	let newspaper = headerMatch ? headerMatch[2] : '';
+
+	item.title = attr(doc, '#ftMetadataHeading', 'value')
+		|| wikiCite.title
+		|| text(doc, '.breadcrumb a[ref="ndp:articleSelector"]');
+	item.title = ZU.trimInternal(item.title);
+
+	let authors = attr(doc, '#ftMetadataAuthors', 'value');
+	let subheading = ZU.trimInternal(attr(doc, '#ftMetadataSubheading', 'value'));
+	let byline = subheading.match(/^(?:by|door|von|par|di|por)\s+(.+)$/i);
+	// "By Our Special Correspondent" is not a name
+	if (!authors && byline && !/\b(?:our|correspondent|reporter|staff|special)\b/i.test(byline[1])) {
+		authors = byline[1];
 	}
-	else {
-		scrapeWork(doc, url, docContext);
+	for (let name of authors.split(/\s*;\s*|\s+(?:and|&|en|und)\s+/)) {
+		if (!name) continue;
+		if (name == name.toUpperCase()) {
+			name = ZU.capitalizeName(name.toLowerCase());
+		}
+		item.creators.push(ZU.cleanAuthor(name, 'author'));
 	}
+
+	let date = wikiCite.date || (headerMatch && headerMatch[1]);
+	item.date = date ? ZU.strToISO(date.replace(/\bSept\b/, 'Sep')) : '';
+	item.publicationTitle = cleanPublicationTitle(newspaper) || wikiCite.newspaper;
+	item.place = cleanPlace(newspaperPlace(newspaper)) || wikiCite.location;
+	item.pages = wikiCite.page || (headerMatch && headerMatch[3]);
+	item.volume = wikiCite.volume;
+	item.issue = wikiCite.issue;
+	item.abstractNote = attr(doc, 'meta[property="og:description"]', 'content')
+		|| text(doc, '#ftMetadataAbstract');
+	item.url = 'http://nla.gov.au/nla.news-article' + articleID;
+	item.libraryCatalog = 'Trove';
+
+	for (let tag of doc.querySelectorAll('ul.nlaTagContainer > li div > a:not(.anno-remove)')) {
+		item.tags.push(ZU.trimInternal(tag.textContent));
+	}
+
+	// I've created a proxy server to generate the PDF and return the URL without locking up the browser.
+	let proxyURL = "https://wraggelabs.com/trove-proxy/pdf/" + articleID;
+	try {
+		let pdfURL = await requestText(proxyURL);
+		if (pdfURL.startsWith('http')) {
+			item.attachments.push({
+				url: pdfURL,
+				title: 'Trove newspaper PDF',
+				mimeType: 'application/pdf'
+			});
+		}
+		else {
+			Zotero.debug("No PDF because unexpected return from trove-proxy " + proxyURL);
+			Zotero.debug(pdfURL);
+		}
+	}
+	catch (e) {
+		Zotero.debug("No PDF: trove-proxy request failed: " + e);
+	}
+
+	let ocrNote = getOCRNote(doc, item.title, printHeader);
+	if (ocrNote) {
+		item.notes.push({ note: ocrNote });
+	}
+
+	item.complete();
 }
 
 
-function scrapeNewspaper(doc, url) {
-	var articleID = url.match(/newspaper\/article\/(\d+)/)[1];
-	var bibtexURL = "http://trove.nla.gov.au/newspaper/citations/bibtex-article-" + articleID + ".bibtex";
+// Parse the {{cite news |key=value ...}} template from the Cite panel
+function parseWikiCite(cite) {
+	let fields = {};
+	if (!cite || !cite.includes('{{cite')) return fields;
+	for (let part of cite.replace(/^\s*\{\{cite news\s*|\}\}\s*$/g, '').split(/\s*\|\s*(?=\w+=)/)) {
+		let [, key, value] = part.match(/^(\w+)=(.*)$/s) || [];
+		if (!key) continue;
+		value = value.replace(/\[\[(?:[^|\]]*\|)?([^\]]*)\]\]/g, '$1')
+			.replace(/,\s*$/, '')
+			.trim();
+		if (value) fields[key] = value;
+	}
+	return fields;
+}
 
-	ZU.HTTP.doGet(bibtexURL, function (bibtex) {
-		var translator = Zotero.loadTranslator("import");
-		translator.setTranslator("9cb70025-a888-4a29-a210-93ec52da40d4");
-		translator.setString(bibtex);
 
-		// Clean up the BibTex results and add some extra stuff.
-		translator.setHandler("itemDone", function (obj, item) {
-			item.itemType = 'newspaperArticle';
-			item.publicationTitle = cleanPublicationTitle(item.publicationTitle);
-			item.place = cleanPlace(item.place);
-			delete item.type;
-			delete item.itemID;
-
-			if (!item.pages) {
-				item.pages = item.numPages;
-				delete item.numPages;
-			}
-
-			// doc is null during multiple call
-			if (doc) {
-				item.abstractNote = ZU.xpathText(doc, "//meta[@property='og:description']/@content");
-				// Add tags
-				var tags = ZU.xpath(doc, "//ul[contains(@class,'nlaTagContainer')]/li");
-				for (let tag of tags) {
-					tag = ZU.xpathText(tag, "div/a[not(contains(@class,'anno-remove'))]");
-					item.tags.push(tag);
-				}
-			}
-
-			// I've created a proxy server to generate the PDF and return the URL without locking up the browser.
-			var proxyURL = "https://wraggelabs.com/trove-proxy/pdf/" + articleID;
-			ZU.doGet(proxyURL, function (pdfURL) {
-				// With the last argument 'false' passed to doGet
-				// we allow all status codes to continue and reach
-				// the item.complete() command.
-				if (pdfURL.startsWith('http')) {
-					item.attachments.push({
-						url: pdfURL,
-						title: 'Trove newspaper PDF',
-						mimeType: 'application/pdf'
-					});
-				}
-				else {
-					Zotero.debug("No PDF because unexpected return from trove-proxy " + proxyURL);
-					Zotero.debug(pdfURL);
-				}
-
-				// Get the OCRd text and save in a note.
-				var textURL = "http://trove.nla.gov.au/newspaper/rendition/nla.news-article" + articleID + ".txt";
-				ZU.HTTP.doGet(textURL, function (text) {
-					item.notes.push({
-						note: text.trim()
-					});
-					item.complete();
-				});
-			}, null, null, null, false);
-		});
-		translator.translate();
-	});
+// Rebuild the OCR text from the server-rendered text zones
+function getOCRNote(doc, title, printHeader) {
+	let paragraphs = [];
+	for (let paragraph of doc.querySelectorAll('#fulltextContents .zone .paragraph')) {
+		let lines = Array.from(paragraph.querySelectorAll('.line .read'))
+			.map(line => ZU.trimInternal(line.textContent))
+			.filter(Boolean);
+		if (lines.length) {
+			paragraphs.push('<p>' + ZU.htmlSpecialChars(lines.join(' ')) + '</p>');
+		}
+	}
+	if (!paragraphs.length) return '';
+	return '<h1>' + ZU.htmlSpecialChars(title) + '</h1>\n'
+		+ '<p>' + ZU.htmlSpecialChars(ZU.trimInternal(printHeader)) + '</p>\n'
+		+ paragraphs.join('\n');
 }
 
 
@@ -195,7 +240,14 @@ function cleanPublicationTitle(pubTitle) {
 	if (!pubTitle) return pubTitle;
 	// Australian Worker (Sydney, NSW : 1913 - 1950) -> Australian Worker
 	// the place info is duplicated in the place field
-	return pubTitle.replace(/\([^)]+\)?/, '');
+	return pubTitle.replace(/\([^)]+\)?/, '').trim();
+}
+
+
+// Australian Worker (Sydney, NSW : 1913 - 1950) -> Sydney, NSW
+function newspaperPlace(pubTitle) {
+	let match = pubTitle && pubTitle.match(/\(([^:)]+?)\s*:/);
+	return match ? match[1] : '';
 }
 
 
@@ -485,7 +537,7 @@ var testCases = [
 				"itemType": "newspaperArticle",
 				"title": "'WRAGGE.'",
 				"creators": [],
-				"date": "7 Feb 1903",
+				"date": "1903-02-07",
 				"abstractNote": "We have received a copy of the above which is a journal devoted chiefly to the science of meteorology. It is owned and conducted by Mr. Clement ...",
 				"libraryCatalog": "Trove",
 				"pages": "4",
@@ -508,6 +560,36 @@ var testCases = [
 						"note": "<html>\n  <head>\n    <title>07 Feb 1903 - 'WRAGGE.'</title>\n  </head>\n  <body>\n      <p>Sunbury News (Vic. : 1900 - 1927, Saturday 7 February 1903, page 4</p>\n      <hr/>\n    <div class='zone'><p>'WRAGGE' - we have received a copy of the above, which is a journal devoted chiefly to the science of meteorology. It is owned and conducted by Mr. Clement Wragge. </p></div>\n  </body>\n</html>"
 					}
 				],
+				"seeAlso": []
+			}
+		]
+	},
+	{
+		"type": "web",
+		"url": "https://trove.nla.gov.au/newspaper/article/225053760",
+		"defer": true,
+		"items": [
+			{
+				"itemType": "newspaperArticle",
+				"title": "Vera's kookgeheimen Zelfs kinderen kunnen dit gerecht bereiden",
+				"creators": [
+					{
+						"firstName": "Vera",
+						"lastName": "Bakker",
+						"creatorType": "author"
+					}
+				],
+				"date": "1979-09-14",
+				"issue": "47",
+				"libraryCatalog": "Trove",
+				"pages": "4",
+				"place": "Sydney, New South Wales",
+				"publicationTitle": "Dutch Australian Weekly",
+				"url": "http://nla.gov.au/nla.news-article225053760",
+				"volume": "28",
+				"attachments": [],
+				"tags": [],
+				"notes": [],
 				"seeAlso": []
 			}
 		]
