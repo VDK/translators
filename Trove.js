@@ -163,7 +163,7 @@ async function scrapeNewspaper(doc, url) {
 	}
 
 	let date = wikiCite.date || (headerMatch && headerMatch[1]);
-	item.date = date ? ZU.strToISO(date.replace(/\bSept\b/, 'Sep')) : '';
+	item.date = date ? ZU.strToISO(date) : '';
 	item.publicationTitle = cleanPublicationTitle(newspaper) || wikiCite.newspaper;
 	item.place = cleanPlace(newspaperPlace(newspaper)) || wikiCite.location;
 	item.pages = wikiCite.page || (headerMatch && headerMatch[3]);
