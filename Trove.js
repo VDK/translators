@@ -369,6 +369,34 @@ function cleanPublisher(publisher) {
 }
 
 
+// Trove gives languages as names ("English") or ISO 639-2 codes ("eng");
+// convert to ISO 639-1 where possible and leave anything else as-is
+function cleanLanguage(language) {
+	if (!language) return language;
+	let lang = language.trim();
+	if (/^[a-z]{2,3}$/i.test(lang)) {
+		try {
+			let code = Intl.getCanonicalLocales(lang.toLowerCase())[0];
+			if (/^[a-z]{2}$/.test(code)) return code;
+		}
+		catch (e) {}
+		return lang;
+	}
+	if (typeof Intl.DisplayNames != 'function') return language;
+	let names = new Intl.DisplayNames('en', { type: 'language', fallback: 'none' });
+	let letters = 'abcdefghijklmnopqrstuvwxyz';
+	for (let first of letters) {
+		for (let second of letters) {
+			let name = names.of(first + second);
+			if (name && name.toLowerCase() == lang.toLowerCase()) {
+				return first + second;
+			}
+		}
+	}
+	return language;
+}
+
+
 function cleanEdition(text) {
 	if (!text) return text;
 	
@@ -427,6 +455,7 @@ function scrapeWork(doc, url, docContext) {
 			item.itemType = checkType(item.type);
 			item.creators = cleanCreators(item.creators);
 			item.edition = cleanEdition(item.edition);
+			item.language = cleanLanguage(item.language);
 			
 			Object.assign(item, cleanPublisher(item.publisher));
 			
@@ -527,7 +556,7 @@ var testCases = [
 				"ISBN": "9780908065073",
 				"abstractNote": "Limited edition of 100 numbered copies",
 				"itemID": "trove.nla.gov.au/work/9958833",
-				"language": "English",
+				"language": "en",
 				"libraryCatalog": "Trove",
 				"place": "Warradale, South Australia",
 				"publisher": "Pioneer Books",
@@ -645,7 +674,7 @@ var testCases = [
 				"date": "1912",
 				"artworkMedium": "Photograph",
 				"itemID": "trove.nla.gov.au/work/258722621",
-				"language": "English",
+				"language": "en",
 				"libraryCatalog": "Trove",
 				"rights": "No known copyright restrictions",
 				"url": "https://collections.slsa.sa.gov.au/resource/B+49301",
@@ -698,7 +727,7 @@ var testCases = [
 				],
 				"date": "2020-01-01",
 				"itemID": "trove.nla.gov.au/work/251351030",
-				"language": "eng",
+				"language": "en",
 				"libraryCatalog": "Trove",
 				"publisher": "Springer",
 				"attachments": [],
